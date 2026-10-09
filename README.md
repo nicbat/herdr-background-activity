@@ -1,7 +1,7 @@
 # Herdr Background Activity
 
 See when a Codex agent has **background shells, a prompt draft, or a pending reply**.
-Also shows **Claude prompt drafts** in the agent and workspace sidebars.
+Also shows **Claude prompt drafts and background shells** in the agent and workspace sidebars.
 A small, dependency-free [Herdr](https://herdr.dev) plugin publishes a separate
 sidebar badge while preserving Herdr's agent state, notifications, and waits.
 
@@ -16,7 +16,7 @@ Runs on macOS/Linux with Herdr **0.8.2+** and Go **1.24+** at install time.
 | Harness | Prompt drafts | Background-shell counts | Question labels |
 | --- | --- | --- | --- |
 | Codex | Yes | Yes | Async `Reply needed` and native blocked input |
-| Claude | Yes | Not yet | Native blocked `Input needed` only |
+| Claude | Yes | Yes (visible native footer) | Native blocked `Input needed` only |
 | Pi | Not yet | Not yet | Not yet |
 
 ## Install
@@ -63,7 +63,7 @@ it does not write Auto Title's `topic`, `counts`, or `activity` tokens.
 | `Reply needed` | An expanded or collapsed Codex question, even while the model keeps working |
 | `Input needed` | Herdr reports blocked, but the specific input UI is not recognized |
 | `Menu open` / `Viewing history` | A recognizable view is obscuring the live footer |
-| `N+ background shells` | Workspace has N confirmed shells and at least one unknown Codex pane |
+| `N+ background shells` | Workspace has N confirmed shells and at least one unknown Codex/Claude pane |
 | No badge | No confirmed activity to display; this does **not** prove zero shells |
 
 Interaction labels and visible shell counts can appear together, such as
@@ -75,9 +75,9 @@ As of v0.2.0, uncertain shell counts remain `unknown` internally without a
 `background ?` badge. Check `inspect` or `$bg_state` for diagnostic detail. This
 keeps drafting and ordinary work quiet without inventing a zero count.
 
-Workspace **shell totals cover Codex panes only**. Draft and native blocked-input
-totals include both Codex and Claude. These are not a machine-wide process inventory. A long-lived
-dev server counts if Codex includes it in its background-terminal summary.
+Workspace shell, draft, and native blocked-input totals include **Codex and
+Claude**. These are not a machine-wide process inventory. A long-lived dev
+server counts if its agent includes it in the live shell summary.
 
 The plugin reads Codex and Claude panes' **visible screens** approximately every two
 seconds. The Codex adapter parses the live composer/footer layout examined in Codex
@@ -99,22 +99,36 @@ row without a readable count stays unknown because that row can clip it.
 The complete `N background terminal(s) running` phrase still establishes a count
 when only the trailing shortcut help is clipped. Working tips below that row
 do not invalidate it.
-The normal supported idle footer without a summary establishes zero. The parser
+The normal supported Codex idle footer without a summary establishes zero. The parser
 anchors to the live footer instead of searching transcript history, but a
 verbatim imitation of that layout in rendered text can still be ambiguous.
 Question labels use the dedicated submit/skip/main-prompt controls or collapsed
 `? N questions` and `to answer` markers, not question marks in ordinary prose.
 Key remappings or layouts that hide those markers may remain unrecognized.
 
-The Claude draft adapter requires a `❯` prompt between two horizontal rules,
-followed by a recognizable `shift+tab to cycle` or `? for shortcuts` footer.
+The Claude adapter requires a `❯` prompt between two horizontal rules,
+followed by a recognizable `shift+tab to cycle`, `? for shortcuts`, or
+`← for agents` footer.
 Unicode whitespace after the prompt glyph is supported, including Claude's
 non-breaking space (fixed in v0.3.1).
 It supports plain/styled and multiline drafts, ignores empty or dim placeholder
 text, and rejects known menu/permission/history controls. Blocked, scrolled,
 truncated, or unreadable views do not establish a draft. Alternate layouts and
-unrecognized placeholder styling can still be ambiguous. It does not install
-Claude hooks or infer any Claude background-shell count.
+unrecognized placeholder styling can still be ambiguous.
+
+Since v0.4.0, Claude counts come from a complete `N shell(s)` component in the
+final native control row, as observed in Claude Code **2.1.287**:
+
+```text
+⏵⏵ auto mode on · 2 shells · ← for agents
+```
+
+The footer updates independently of agent turns. Counts clear when the shell
+component disappears. Transcript summaries such as `1 shell still running`,
+custom status-line text, and generic task/agent counts are ignored. A missing
+Claude count remains **unknown**, since narrow layouts may hide the component;
+it never establishes zero. Workspace sums with unknown panes display `N+`.
+No Claude hooks, extra model calls, or agent restarts are required.
 
 ## Controls
 
@@ -158,9 +172,9 @@ Owned pane/workspace metadata:
 | `$bg_shells` | Exact decimal count, including `0`; absent when unknown/partial/unsupported |
 | `$bg_state` | Shell-count confidence: `known`, `unknown`, `partial` (workspace), or `unsupported` |
 
-A Claude pane can report `bg_state=unsupported` alongside `Draft prompt`: its
-draft is visible but its shell inventory is unsupported. A workspace with only
-Claude interactions likewise has no exact shell count.
+A Claude pane can report `bg_state=unknown` alongside `Draft prompt` when its
+draft is visible but its shell count is hidden. Positive visible counts use
+`known`; unsupported harnesses such as Pi still use `unsupported`.
 
 Reports refresh about every six seconds at the default poll interval and expire
 after **15 seconds** without renewal. Graceful shutdown clears the owned keys.
@@ -186,7 +200,8 @@ session changes, protocol errors, and real subprocess start/stop/restart.
 Draft/question tests cover ANSI placeholders, multiline input, collapsed and
 expanded asynchronous questions, working tips, and clearing submitted drafts.
 Claude tests cover bordered composers, permission choices, transcript mentions,
-draft clearing, mixed-harness rollups, and replacement/view-state guards.
+draft clearing, shell-count completion, mixed-harness rollups, and
+replacement/view-state guards.
 
 Future adapters can use structured signals when a supported connection to an
 existing agent is available. Claude needs a validated task-completion refresh

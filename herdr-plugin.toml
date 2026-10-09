@@ -1,8 +1,8 @@
 id = "herdr.background-activity"
 name = "Background Activity"
-version = "0.3.1"
+version = "0.4.0"
 min_herdr_version = "0.8.2"
-description = "Shows Codex background shells and replies, plus Codex and Claude drafts"
+description = "Shows Codex and Claude background shells and drafts, plus pending replies"
 platforms = ["macos", "linux"]
 
 [[build]]

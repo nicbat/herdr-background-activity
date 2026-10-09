@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -221,7 +222,7 @@ func TestClaudeDraftLifecycleAndRollup(t *testing.T) {
 		t.Fatal("workspace draft lost")
 	}
 	for _, report := range f.reports {
-		if report.Tokens["bg_shells"] != nil || token(report.Tokens, "bg_state") != "unsupported" {
+		if report.Tokens["bg_shells"] != nil || token(report.Tokens, "bg_state") != "unknown" {
 			t.Fatal("invented Claude shell count")
 		}
 	}
@@ -237,8 +238,8 @@ func TestClaudeDraftLifecycleAndRollup(t *testing.T) {
 	p := pane()
 	c := p
 	c.Agent = "claude"
-	tokens := WorkspaceTokens([]Result{{p, activity.Observation{State: "known", Count: 1}}, {c, activity.Observation{State: "unsupported", Interaction: "draft"}}}, "w1")
-	if token(tokens, "bg_activity") != "1 background shell · 1 draft" || token(tokens, "bg_shells") != "1" {
+	tokens := WorkspaceTokens([]Result{{p, activity.Observation{State: "known", Count: 1}}, {c, activity.Observation{State: "unknown", Interaction: "draft"}}}, "w1")
+	if token(tokens, "bg_activity") != "1+ background shells · 1 draft" || tokens["bg_shells"] != nil {
 		t.Fatal(tokens)
 	}
 }
@@ -324,16 +325,86 @@ func TestWorkspaceAggregation(t *testing.T) {
 	other.WorkspaceID = "elsewhere"
 	claude := p
 	claude.Agent = "claude"
-	results := []Result{{p, activity.Observation{State: "known", Count: 2}}, {other, activity.Observation{State: "known", Count: 20}}, {claude, activity.Observation{State: "unsupported"}}}
-	if token(WorkspaceTokens(results, "w1"), "bg_shells") != "2" {
+	results := []Result{{p, activity.Observation{State: "known", Count: 2}}, {other, activity.Observation{State: "known", Count: 20}}, {claude, activity.Observation{State: "known", Count: 1}}}
+	if token(WorkspaceTokens(results, "w1"), "bg_shells") != "3" {
 		t.Fatal("wrong aggregate")
 	}
 	results = append(results, Result{p, activity.Unknown("hidden")})
 	tokens := WorkspaceTokens(results, "w1")
-	if token(tokens, "bg_activity") != "2+ background shells" || tokens["bg_shells"] != nil || token(tokens, "bg_state") != "partial" {
+	if token(tokens, "bg_activity") != "3+ background shells" || tokens["bg_shells"] != nil || token(tokens, "bg_state") != "partial" {
 		t.Fatal(tokens)
 	}
 	if token(WorkspaceTokens(nil, "w1"), "bg_activity") != "<nil>" {
 		t.Fatal("unsupported must be blank")
+	}
+}
+
+func TestClaudeShellLifecycle(t *testing.T) {
+	f := fixture()
+	f.snapshot.Panes[0].Agent = "claude"
+	f.snapshot.Panes[0].Status = "done"
+	r := Runner{API: f}
+	now := time.Now()
+	border := "────────────────────────────────────────"
+	for i, count := range []int{2, 1, 0} {
+		footer := "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
+		if count == 2 {
+			footer = "⏵⏵ auto mode on · 2 shells · ← for agents"
+		}
+		if count == 1 {
+			footer = "⏵⏵ auto mode on · 1 shell · ← for agents"
+		}
+		f.screen = "2 shells still running\n" + border + "\n❯\u00a0\n" + border + "\n" + footer
+		if err := r.Tick(context.Background(), now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		for _, report := range f.reports[len(f.reports)-2:] {
+			if count == 0 {
+				if report.Tokens["bg_activity"] != nil || report.Tokens["bg_shells"] != nil || token(report.Tokens, "bg_state") != "unknown" {
+					t.Fatal("stale Claude count", report)
+				}
+			} else if token(report.Tokens, "bg_shells") != strconv.Itoa(count) {
+				t.Fatal("missing Claude count", report)
+			}
+		}
+	}
+}
+
+func TestClaudeShellViewGuards(t *testing.T) {
+	for _, mode := range []string{"blocked", "scrolled", "truncated", "read error", "replacement", "session", "status"} {
+		t.Run(mode, func(t *testing.T) {
+			f := fixture()
+			f.snapshot.Panes[0].Agent = "claude"
+			f.screen = "────────────────────\n❯\n────────────────────\n1 shell · ← for agents\n"
+			switch mode {
+			case "blocked":
+				f.snapshot.Panes[0].Status = "blocked"
+			case "scrolled":
+				f.snapshot.Panes[0].Scroll.Offset = 1
+			case "truncated":
+				f.truncated = true
+			case "read error":
+				f.readErr = true
+			default:
+				p := f.snapshot.Panes[0]
+				if mode == "replacement" {
+					p.TerminalID = "new"
+				}
+				if mode == "session" {
+					p.Session = json.RawMessage(`{"id":"session2"}`)
+				}
+				if mode == "status" {
+					p.Status = "working"
+				}
+				f.replacement = &herdr.Snapshot{Panes: []herdr.Pane{p}}
+			}
+			r := Runner{API: f}
+			if err := r.Tick(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if f.reports[0].Tokens["bg_shells"] != nil {
+				t.Fatal("stale/hidden Claude count")
+			}
+		})
 	}
 }

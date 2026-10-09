@@ -69,7 +69,7 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 }
 
 func observeClaude(ctx context.Context, api herdr.API, p herdr.Pane) activity.Observation {
-	o := activity.Observation{State: "unsupported", Reason: "Claude shell counts unsupported"}
+	o := activity.Unknown("Claude live view unavailable")
 	if p.Scroll.Offset != 0 {
 		return o
 	}
@@ -116,9 +116,6 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 		case "input":
 			inputs++
 		}
-		if r.Pane.Agent != "codex" {
-			continue
-		} // Shell totals remain Codex-only.
 		supported++
 		if r.Observation.State != "known" {
 			unknown++
@@ -230,8 +227,6 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		result.Pane = pane
 		if pane.Agent != "codex" && pane.Agent != "claude" {
 			result.Observation = activity.Observation{State: "unsupported"}
-		} else if pane.Agent == "claude" {
-			result.Observation.State, result.Observation.Count = "unsupported", 0
 		}
 		validated = append(validated, result)
 		tokens := PaneTokens(result.Observation)
