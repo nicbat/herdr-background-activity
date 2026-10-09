@@ -53,6 +53,8 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 					if p.Status == "blocked" && o.Interaction == "" {
 						o.Interaction = "input"
 					}
+				} else if p.Agent == "claude" {
+					o = observeClaude(ctx, api, p)
 				}
 				results[i] = Result{p, o}
 			}
@@ -64,6 +66,28 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 	close(jobs)
 	wg.Wait()
 	return results
+}
+
+func observeClaude(ctx context.Context, api herdr.API, p herdr.Pane) activity.Observation {
+	o := activity.Observation{State: "unsupported", Reason: "Claude shell counts unsupported"}
+	if p.Scroll.Offset != 0 {
+		return o
+	}
+	if p.Status == "blocked" {
+		o.Interaction = "input"
+		return o
+	}
+	var read herdr.ReadResult
+	params := map[string]any{"pane_id": p.ID, "source": "visible", "format": "ansi", "strip_ansi": false}
+	if err := api.Call(ctx, "pane.read", params, &read); err != nil {
+		o.Reason = "screen unavailable"
+		return o
+	}
+	if read.Read.Truncated {
+		o.Reason = "screen truncated"
+		return o
+	}
+	return activity.Claude(read.Read.Text)
 }
 
 func PaneTokens(o activity.Observation) herdr.Tokens {
@@ -81,10 +105,9 @@ func PaneTokens(o activity.Observation) herdr.Tokens {
 func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 	var supported, unknown, count, replies, drafts, inputs int
 	for _, r := range results {
-		if r.Pane.WorkspaceID != id || r.Pane.Agent != "codex" {
+		if r.Pane.WorkspaceID != id || (r.Pane.Agent != "codex" && r.Pane.Agent != "claude") {
 			continue
 		}
-		supported++
 		switch r.Observation.Interaction {
 		case "question":
 			replies++
@@ -93,17 +116,21 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 		case "input":
 			inputs++
 		}
+		if r.Pane.Agent != "codex" {
+			continue
+		} // Shell totals remain Codex-only.
+		supported++
 		if r.Observation.State != "known" {
 			unknown++
 		} else {
 			count += r.Observation.Count
 		}
 	}
-	if supported == 0 {
-		return herdr.Clear()
-	}
 	o := activity.Observation{State: "known", Count: count}
 	tokens := PaneTokens(o)
+	if supported == 0 {
+		tokens = herdr.Clear()
+	}
 	if unknown > 0 {
 		tokens["bg_shells"] = nil // A partial sum is not an exact total.
 		tokens["bg_state"] = herdr.String("unknown")
@@ -141,6 +168,9 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 	}
 	if len(labels) > 0 {
 		tokens["bg_activity"] = herdr.String(strings.Join(labels, " · "))
+		if supported == 0 {
+			tokens["bg_state"] = herdr.String("unsupported")
+		}
 	}
 	return tokens
 }
@@ -198,8 +228,10 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			result.Observation.Interaction = "input"
 		}
 		result.Pane = pane
-		if pane.Agent != "codex" {
+		if pane.Agent != "codex" && pane.Agent != "claude" {
 			result.Observation = activity.Observation{State: "unsupported"}
+		} else if pane.Agent == "claude" {
+			result.Observation.State, result.Observation.Count = "unsupported", 0
 		}
 		validated = append(validated, result)
 		tokens := PaneTokens(result.Observation)

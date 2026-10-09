@@ -11,8 +11,14 @@ import (
 // Keep only this style bit during parsing; never store the text or styling.
 // Without styling, absent shortcuts alone cannot distinguish a placeholder.
 func composerHasDraft(lines []string) bool {
+	return inputHasDraft(lines, '›', false)
+}
+
+// Claude's bordered composer can contain unstyled text; Codex needs styling
+// when its empty-composer shortcut hint is absent.
+func inputHasDraft(lines []string, prompt rune, allowPlain bool) bool {
 	styled := strings.Contains(strings.Join(lines, ""), "\x1b[")
-	if !styled {
+	if !styled && !allowPlain {
 		return false
 	}
 	dim := false
@@ -51,7 +57,7 @@ func composerHasDraft(lines []string) bool {
 			r, size := utf8.DecodeRuneInString(line)
 			line = line[size:]
 			if !afterPrompt {
-				if r == '›' {
+				if r == prompt {
 					afterPrompt = true
 				}
 				continue

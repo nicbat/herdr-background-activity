@@ -190,7 +190,7 @@ func TestObserveUncertainViews(t *testing.T) {
 				p.Status = "working"
 				f.screen = zeroScreen
 			case "unsupported":
-				p.Agent = "claude"
+				p.Agent = "pi"
 			}
 			o := Observe(context.Background(), f, []herdr.Pane{p})[0].Observation
 			if o.State == "known" {
@@ -198,6 +198,77 @@ func TestObserveUncertainViews(t *testing.T) {
 			}
 			if test == "unsupported" && (o.State != "unsupported" || f.reads != 0) {
 				t.Fatal(o)
+			}
+		})
+	}
+}
+
+func TestClaudeDraftLifecycleAndRollup(t *testing.T) {
+	f := fixture()
+	f.snapshot.Panes[0].Agent = "claude"
+	border := "────────────────────────────────────────"
+	f.screen = border + "\n❯ Write an example\n" + border + "\n⏵⏵ auto mode on (shift+tab to cycle)\n"
+	r := Runner{API: f}
+	now := time.Now()
+	ctx := context.Background()
+	if err := r.Tick(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if token(f.reports[0].Tokens, "bg_activity") != "Draft prompt" {
+		t.Fatal("Claude draft lost")
+	}
+	if token(f.reports[1].Tokens, "bg_activity") != "1 draft" {
+		t.Fatal("workspace draft lost")
+	}
+	for _, report := range f.reports {
+		if report.Tokens["bg_shells"] != nil || token(report.Tokens, "bg_state") != "unsupported" {
+			t.Fatal("invented Claude shell count")
+		}
+	}
+	f.screen = strings.ReplaceAll(f.screen, "Write an example", "")
+	if err := r.Tick(ctx, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range f.reports[2:] {
+		if report.Tokens["bg_activity"] != nil {
+			t.Fatal("draft did not clear")
+		}
+	}
+	p := pane()
+	c := p
+	c.Agent = "claude"
+	tokens := WorkspaceTokens([]Result{{p, activity.Observation{State: "known", Count: 1}}, {c, activity.Observation{State: "unsupported", Interaction: "draft"}}}, "w1")
+	if token(tokens, "bg_activity") != "1 background shell · 1 draft" || token(tokens, "bg_shells") != "1" {
+		t.Fatal(tokens)
+	}
+}
+
+func TestClaudeDraftViewGuards(t *testing.T) {
+	for _, mode := range []string{"blocked", "scrolled", "truncated", "read error", "replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			f := fixture()
+			f.snapshot.Panes[0].Agent = "claude"
+			f.screen = "────────────────────\n❯ Example\n────────────────────\n? for shortcuts\n"
+			switch mode {
+			case "blocked":
+				f.snapshot.Panes[0].Status = "blocked"
+			case "scrolled":
+				f.snapshot.Panes[0].Scroll.Offset = 1
+			case "truncated":
+				f.truncated = true
+			case "read error":
+				f.readErr = true
+			case "replacement":
+				p := f.snapshot.Panes[0]
+				p.TerminalID = "new"
+				f.replacement = &herdr.Snapshot{Panes: []herdr.Pane{p}}
+			}
+			r := Runner{API: f}
+			if err := r.Tick(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if token(f.reports[0].Tokens, "bg_activity") == "Draft prompt" || f.reports[0].Tokens["bg_shells"] != nil {
+				t.Fatal("stale/hidden Claude draft")
 			}
 		})
 	}

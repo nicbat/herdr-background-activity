@@ -1,6 +1,7 @@
 # Herdr Background Activity
 
 See when a Codex agent has **background shells, a prompt draft, or a pending reply**.
+Also shows **Claude prompt drafts** in the agent and workspace sidebars.
 A small, dependency-free [Herdr](https://herdr.dev) plugin publishes a separate
 sidebar badge while preserving Herdr's agent state, notifications, and waits.
 
@@ -10,8 +11,13 @@ project · codex · Idle
 1 background shell
 ```
 
-Supports **Codex**, macOS/Linux, and Herdr **0.8.2+**.
-Claude and Pi are not yet supported. Go **1.24+** is required at install time.
+Runs on macOS/Linux with Herdr **0.8.2+** and Go **1.24+** at install time.
+
+| Harness | Prompt drafts | Background-shell counts | Question labels |
+| --- | --- | --- | --- |
+| Codex | Yes | Yes | Async `Reply needed` and native blocked input |
+| Claude | Yes | Not yet | Native blocked `Input needed` only |
+| Pi | Not yet | Not yet | Not yet |
 
 ## Install
 
@@ -53,7 +59,7 @@ it does not write Auto Title's `topic`, `counts`, or `activity` tokens.
 | --- | --- |
 | `1 background shell` | One terminal in the recognizable current Codex footer |
 | `N background shells` | N terminals in that footer |
-| `Draft prompt` | Unsubmitted text or attachments in the live composer |
+| `Draft prompt` | Unsubmitted text in a recognized Codex or Claude composer; Codex queue hints also detect attachments |
 | `Reply needed` | An expanded or collapsed Codex question, even while the model keeps working |
 | `Input needed` | Herdr reports blocked, but the specific input UI is not recognized |
 | `Menu open` / `Viewing history` | A recognizable view is obscuring the live footer |
@@ -69,12 +75,12 @@ As of v0.2.0, uncertain shell counts remain `unknown` internally without a
 `background ?` badge. Check `inspect` or `$bg_state` for diagnostic detail. This
 keeps drafting and ordinary work quiet without inventing a zero count.
 
-Workspace totals cover **Codex panes only**, including workspaces that also have
-Claude or Pi panes. They are not a machine-wide process inventory. A long-lived
+Workspace **shell totals cover Codex panes only**. Draft and native blocked-input
+totals include both Codex and Claude. These are not a machine-wide process inventory. A long-lived
 dev server counts if Codex includes it in its background-terminal summary.
 
-The plugin reads each Codex pane's **visible screen** approximately every two
-seconds and parses the live composer/footer layout examined in Codex
+The plugin reads Codex and Claude panes' **visible screens** approximately every two
+seconds. The Codex adapter parses the live composer/footer layout examined in Codex
 `rust-v0.160.0`. The supported footer contains `Context N% used` or
 `N% context left`. Empty composers show `? for shortcuts`; drafts can replace it
 with a queue hint or hide it. ANSI styling distinguishes dim placeholder text
@@ -99,6 +105,14 @@ verbatim imitation of that layout in rendered text can still be ambiguous.
 Question labels use the dedicated submit/skip/main-prompt controls or collapsed
 `? N questions` and `to answer` markers, not question marks in ordinary prose.
 Key remappings or layouts that hide those markers may remain unrecognized.
+
+The Claude draft adapter requires a `❯` prompt between two horizontal rules,
+followed by a recognizable `shift+tab to cycle` or `? for shortcuts` footer.
+It supports plain/styled and multiline drafts, ignores empty or dim placeholder
+text, and rejects known menu/permission/history controls. Blocked, scrolled,
+truncated, or unreadable views do not establish a draft. Alternate layouts and
+unrecognized placeholder styling can still be ambiguous. It does not install
+Claude hooks or infer any Claude background-shell count.
 
 ## Controls
 
@@ -140,7 +154,11 @@ Owned pane/workspace metadata:
 | --- | --- |
 | `$bg_activity` | Confirmed shell/interaction badge; absent for a bare unknown count |
 | `$bg_shells` | Exact decimal count, including `0`; absent when unknown/partial/unsupported |
-| `$bg_state` | `known`, `unknown`, `partial` (workspace), or `unsupported` (pane) |
+| `$bg_state` | Shell-count confidence: `known`, `unknown`, `partial` (workspace), or `unsupported` |
+
+A Claude pane can report `bg_state=unsupported` alongside `Draft prompt`: its
+draft is visible but its shell inventory is unsupported. A workspace with only
+Claude interactions likewise has no exact shell count.
 
 Reports refresh about every six seconds at the default poll interval and expire
 after **15 seconds** without renewal. Graceful shutdown clears the owned keys.
@@ -165,6 +183,8 @@ completion clearing, reconciliation, expiry settings, failed-report retry,
 session changes, protocol errors, and real subprocess start/stop/restart.
 Draft/question tests cover ANSI placeholders, multiline input, collapsed and
 expanded asynchronous questions, working tips, and clearing submitted drafts.
+Claude tests cover bordered composers, permission choices, transcript mentions,
+draft clearing, mixed-harness rollups, and replacement/view-state guards.
 
 Future adapters can use structured signals when a supported connection to an
 existing agent is available. Claude needs a validated task-completion refresh
