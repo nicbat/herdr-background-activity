@@ -18,6 +18,9 @@ func TestClaudeDraft(t *testing.T) {
 	}{
 		{"empty", claudeScreen("❯ "), false},
 		{"typed", claudeScreen("❯ Write an example"), true},
+		{"live non-breaking space", claudeScreen("❯\u00a0aaa"), true},
+		{"empty non-breaking space", claudeScreen("❯\u00a0"), false},
+		{"narrow non-breaking space", claudeScreen("❯\u202fExample"), true},
 		{"multiline", claudeScreen("❯ First line\n  Second line"), true},
 		{"newline first", claudeScreen("❯ \n  Second line"), true},
 		{"whitespace", claudeScreen("❯  \n  "), false},

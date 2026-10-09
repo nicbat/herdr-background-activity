@@ -108,6 +108,8 @@ Key remappings or layouts that hide those markers may remain unrecognized.
 
 The Claude draft adapter requires a `❯` prompt between two horizontal rules,
 followed by a recognizable `shift+tab to cycle` or `? for shortcuts` footer.
+Unicode whitespace after the prompt glyph is supported, including Claude's
+non-breaking space (fixed in v0.3.1).
 It supports plain/styled and multiline drafts, ignores empty or dim placeholder
 text, and rejects known menu/permission/history controls. Blocked, scrolled,
 truncated, or unreadable views do not establish a draft. Alternate layouts and

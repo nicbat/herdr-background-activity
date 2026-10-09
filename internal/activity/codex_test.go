@@ -16,6 +16,7 @@ func TestCodexBoundaries(t *testing.T) {
 		{"zero", "• Finished the example." + footer, "known", 0},
 		{"empty", "" + footer, "known", 0},
 		{"one", "Example output\n\n  " + one + footer, "known", 1},
+		{"non-breaking prompt space", "Example output\n\n  " + one + strings.ReplaceAll(footer, "› ", "›\u00a0"), "known", 1},
 		{"many", "\n\n12 background terminals running · /ps to view · /stop to close" + footer, "known", 12},
 		{"wrapped", "\n\n2 background terminals running · /ps to view ·\n /stop to close" + footer, "known", 2},
 		{"working", "\n\n• Working (1m · esc to interrupt) · " + one + footer, "known", 1},

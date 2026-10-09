@@ -35,7 +35,7 @@ func Claude(text string) Observation {
 	for prompt < bottom && lines[prompt] == "" {
 		prompt++
 	}
-	if prompt >= bottom || (lines[prompt] != "❯" && !strings.HasPrefix(lines[prompt], "❯ ")) {
+	if prompt >= bottom || !hasPrompt(lines[prompt], '❯') {
 		return o
 	}
 	if inputHasDraft(raw[prompt:bottom], '❯', true) {

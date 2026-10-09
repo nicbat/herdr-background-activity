@@ -7,6 +7,19 @@ import (
 	"unicode/utf8"
 )
 
+// Harnesses can separate the prompt glyph and input with non-breaking spaces.
+func hasPrompt(line string, marker rune) bool {
+	r, size := utf8.DecodeRuneInString(line)
+	if r != marker {
+		return false
+	}
+	if len(line) == size {
+		return true
+	}
+	next, _ := utf8.DecodeRuneInString(line[size:])
+	return unicode.IsSpace(next)
+}
+
 // Codex renders empty placeholders dim and user input in the normal style.
 // Keep only this style bit during parsing; never store the text or styling.
 // Without styling, absent shortcuts alone cannot distinguish a placeholder.

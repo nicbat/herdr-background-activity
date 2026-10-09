@@ -70,7 +70,7 @@ func Codex(text string) Observation {
 	}
 	prompt := -1
 	for i := status - 1; i >= 0; i-- {
-		if strings.HasPrefix(lines[i], "› ") || lines[i] == "›" {
+		if hasPrompt(lines[i], '›') {
 			prompt = i
 			break
 		}
