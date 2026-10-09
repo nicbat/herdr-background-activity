@@ -28,15 +28,15 @@ func FromEnv() (Config, error) {
 		return c, errors.New("run inside Herdr (HERDR_ENV=1 and HERDR_SOCKET_PATH required)")
 	}
 	if c.StateDir == "" {
-		config := os.Getenv("HERDR_CONFIG_PATH")
-		if config == "" {
+		state := os.Getenv("XDG_STATE_HOME")
+		if state == "" {
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return c, err
 			}
-			config = filepath.Join(home, ".config", "herdr", "config.toml")
+			state = filepath.Join(home, ".local", "state")
 		}
-		c.StateDir = filepath.Join(filepath.Dir(config), "plugins", "state", herdr.Source)
+		c.StateDir = filepath.Join(state, "herdr", "plugins", herdr.Source)
 	}
 	return c, nil
 }

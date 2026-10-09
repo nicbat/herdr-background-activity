@@ -101,6 +101,10 @@ daemon exits when its Herdr server socket disappears or is replaced. A private
 control socket handles stop requests; no PID-file process killing is used.
 State and startup errors live under `HERDR_PLUGIN_STATE_DIR`, in a socket-specific
 subdirectory. Socket path length limits still apply to unusually long config paths.
+When run directly from a shell, the binary uses
+`${XDG_STATE_HOME:-~/.local/state}/herdr/plugins/herdr.background-activity`.
+Set `HERDR_PLUGIN_STATE_DIR` explicitly if your Herdr installation uses a
+different state directory.
 
 ## Data and scope
 

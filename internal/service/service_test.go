@@ -33,6 +33,26 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestStateDirectory(t *testing.T) {
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/example/herdr.sock")
+	t.Setenv("XDG_STATE_HOME", "/example/state")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	c, err := FromEnv()
+	if err != nil || c.StateDir != "/example/state/herdr/plugins/herdr.background-activity" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "/example/managed")
+	c, err = FromEnv()
+	if err != nil || c.StateDir != "/example/managed" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	t.Setenv("HERDR_ENV", "")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("accepted outside Herdr")
+	}
+}
+
 type testServer struct {
 	listener net.Listener
 	mu       sync.Mutex
