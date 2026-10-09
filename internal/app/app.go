@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,19 +33,25 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 				o := activity.Observation{State: "unsupported"}
 				if p.Agent == "codex" {
 					o = activity.Unknown("agent not in live view")
-					if p.Scroll.Offset == 0 && (p.Status == "idle" || p.Status == "done" || p.Status == "working") {
+					if p.Scroll.Offset != 0 {
+						o.Interaction = "history"
+					}
+					if p.Scroll.Offset == 0 {
 						var read herdr.ReadResult
-						params := map[string]any{"pane_id": p.ID, "source": "visible", "format": "text", "strip_ansi": true}
+						params := map[string]any{"pane_id": p.ID, "source": "visible", "format": "ansi", "strip_ansi": false}
 						if err := api.Call(ctx, "pane.read", params, &read); err != nil {
 							o = activity.Unknown("screen unavailable")
 						} else if read.Read.Truncated {
 							o = activity.Unknown("screen truncated")
 						} else {
 							o = activity.Codex(read.Read.Text)
-							if p.Status == "working" && o.State == "known" && o.Count == 0 {
-								o = activity.Unknown("working row may hide the summary")
+							if p.Status != "idle" && p.Status != "done" && o.State == "known" && o.Count == 0 {
+								o.State, o.Reason = "unknown", "active view may hide the summary"
 							}
 						}
+					}
+					if p.Status == "blocked" && o.Interaction == "" {
+						o.Interaction = "input"
 					}
 				}
 				results[i] = Result{p, o}
@@ -72,12 +79,20 @@ func PaneTokens(o activity.Observation) herdr.Tokens {
 }
 
 func WorkspaceTokens(results []Result, id string) herdr.Tokens {
-	var supported, unknown, count int
+	var supported, unknown, count, replies, drafts, inputs int
 	for _, r := range results {
 		if r.Pane.WorkspaceID != id || r.Pane.Agent != "codex" {
 			continue
 		}
 		supported++
+		switch r.Observation.Interaction {
+		case "question":
+			replies++
+		case "draft":
+			drafts++
+		case "input":
+			inputs++
+		}
 		if r.Observation.State != "known" {
 			unknown++
 		} else {
@@ -92,12 +107,40 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 	if unknown > 0 {
 		tokens["bg_shells"] = nil // A partial sum is not an exact total.
 		tokens["bg_state"] = herdr.String("unknown")
-		label := "background ?"
+		label := ""
 		if count > 0 {
 			label = fmt.Sprintf("%d+ background shells", count)
 			tokens["bg_state"] = herdr.String("partial")
 		}
-		tokens["bg_activity"] = herdr.String(label)
+		if label != "" {
+			tokens["bg_activity"] = herdr.String(label)
+		} else {
+			tokens["bg_activity"] = nil
+		}
+	}
+	labels := []string{}
+	if replies > 0 {
+		noun := "replies needed"
+		if replies == 1 {
+			noun = "reply needed"
+		}
+		labels = append(labels, fmt.Sprintf("%d %s", replies, noun))
+	}
+	if inputs > 0 {
+		labels = append(labels, fmt.Sprintf("%d awaiting input", inputs))
+	}
+	if tokens["bg_activity"] != nil {
+		labels = append(labels, *tokens["bg_activity"])
+	}
+	if drafts > 0 {
+		noun := "drafts"
+		if drafts == 1 {
+			noun = "draft"
+		}
+		labels = append(labels, fmt.Sprintf("%d %s", drafts, noun))
+	}
+	if len(labels) > 0 {
+		tokens["bg_activity"] = herdr.String(strings.Join(labels, " · "))
 	}
 	return tokens
 }
@@ -144,8 +187,15 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		key := "pane/" + pane.ID
 		live[key] = true
 		result, ok := byID[pane.ID]
-		if !ok || identity(result.Pane) != identity(pane) || result.Pane.Status != pane.Status || pane.Scroll.Offset != 0 || pane.Status == "blocked" || pane.Status == "unknown" {
+		if !ok || identity(result.Pane) != identity(pane) || result.Pane.Status != pane.Status || result.Pane.Scroll.Offset != pane.Scroll.Offset {
 			result.Observation = activity.Unknown("pane changed while reading")
+		}
+		if pane.Scroll.Offset != 0 {
+			result.Observation = activity.Unknown("history view")
+			result.Observation.Interaction = "history"
+		}
+		if pane.Status == "blocked" && result.Observation.Interaction == "" {
+			result.Observation.Interaction = "input"
 		}
 		result.Pane = pane
 		if pane.Agent != "codex" {

@@ -41,7 +41,7 @@ func (f *fakeAPI) Call(_ context.Context, method string, params, out any) error 
 	case "pane.read":
 		f.reads++
 		p := params.(map[string]any)
-		if p["source"] != "visible" || p["format"] != "text" || p["strip_ansi"] != true {
+		if p["source"] != "visible" || p["format"] != "ansi" || p["strip_ansi"] != false {
 			return errors.New("unsafe read parameters")
 		}
 		if f.readErr {
@@ -179,6 +179,7 @@ func TestObserveUncertainViews(t *testing.T) {
 			switch test {
 			case "blocked", "unknown":
 				p.Status = test
+				f.screen = zeroScreen
 			case "scrolled":
 				p.Scroll.Offset = 2
 			case "truncated":
@@ -199,6 +200,50 @@ func TestObserveUncertainViews(t *testing.T) {
 				t.Fatal(o)
 			}
 		})
+	}
+}
+
+func TestQuestionAndDraftReconciliation(t *testing.T) {
+	f := fixture()
+	r := Runner{API: f}
+	now := time.Now()
+	ctx := context.Background()
+	question := "• Queued follow-up inputs\n\nChoose an option\n\nType your answer\n\nenter submit   ctrl+] skip   shift+→ main prompt\n"
+	for i, status := range []string{"working", "blocked", "idle", "unknown"} {
+		f.snapshot.Panes[0].Status = status
+		f.screen = question
+		if err := r.Tick(ctx, now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		last := f.reports[len(f.reports)-1]
+		if token(last.Tokens, "bg_activity") != "1 reply needed" || last.Tokens["bg_shells"] != nil {
+			t.Fatal("question lost or reported false zero", last)
+		}
+	}
+	f.snapshot.Panes[0].Status = "working"
+	f.screen = "• Complete.\n\n\n\x1b[0m› A draft\x1b[0m\n\nContext 42% used\ntab to queue message\n"
+	if err := r.Tick(ctx, now.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	last := f.reports[len(f.reports)-1]
+	if token(last.Tokens, "bg_activity") != "1 draft" || last.Tokens["bg_shells"] != nil {
+		t.Fatal("draft should survive uncertainty", last)
+	}
+	f.snapshot.Panes[0].Status = "idle"
+	f.screen = zeroScreen
+	if err := r.Tick(ctx, now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	last = f.reports[len(f.reports)-1]
+	if last.Tokens["bg_activity"] != nil || token(last.Tokens, "bg_shells") != "0" {
+		t.Fatal("answered/submitted labels not cleared", last)
+	}
+}
+
+func TestUnknownRollupIsQuietWithoutInventingZero(t *testing.T) {
+	tokens := WorkspaceTokens([]Result{{pane(), activity.Unknown("hidden")}}, "w1")
+	if tokens["bg_activity"] != nil || tokens["bg_shells"] != nil || token(tokens, "bg_state") != "unknown" {
+		t.Fatal(tokens)
 	}
 }
 

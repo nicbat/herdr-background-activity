@@ -1,8 +1,8 @@
 id = "herdr.background-activity"
 name = "Background Activity"
-version = "0.1.1"
+version = "0.2.0"
 min_herdr_version = "0.8.2"
-description = "Shows Codex background shell activity alongside agent state"
+description = "Shows Codex background shells, drafts, and pending replies"
 platforms = ["macos", "linux"]
 
 [[build]]
