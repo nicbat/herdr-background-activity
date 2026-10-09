@@ -1,0 +1,36 @@
+id = "herdr.background-activity"
+name = "Background Activity"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Shows Codex background shell activity alongside agent state"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["go", "build", "-o", "herdr-background-activity", "./cmd/herdr-background-activity"]
+
+[[startup]]
+command = ["./herdr-background-activity", "start"]
+
+[[actions]]
+id = "start"
+title = "Background Activity: start"
+contexts = ["global"]
+command = ["./herdr-background-activity", "start"]
+
+[[actions]]
+id = "stop"
+title = "Background Activity: stop"
+contexts = ["global"]
+command = ["./herdr-background-activity", "stop"]
+
+[[actions]]
+id = "restart"
+title = "Background Activity: restart"
+contexts = ["global"]
+command = ["./herdr-background-activity", "restart"]
+
+[[actions]]
+id = "status"
+title = "Background Activity: status"
+contexts = ["global"]
+command = ["./herdr-background-activity", "status"]
