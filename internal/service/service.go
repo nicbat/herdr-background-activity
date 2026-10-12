@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nicbat/herdr-background-activity/internal/app"
+	"github.com/nicbat/herdr-background-activity/internal/buildinfo"
 	"github.com/nicbat/herdr-background-activity/internal/herdr"
 )
 
@@ -48,6 +49,8 @@ func (c Config) control() string { return filepath.Join(c.dir(), "ctl") }
 
 type Status struct {
 	Running     bool      `json:"running"`
+	Version     string    `json:"version"`
+	Build       string    `json:"build"`
 	PID         int       `json:"pid,omitempty"`
 	Server      string    `json:"server,omitempty"`
 	LastSuccess time.Time `json:"last_success"`
@@ -140,8 +143,12 @@ func (c Config) Manage(ctx context.Context, command string) error {
 	if err != nil {
 		return err
 	}
+	build, err := buildinfo.Digest()
+	if err != nil {
+		return err
+	}
 	if status, err := c.Status(); err == nil && status.Running {
-		if status.Server == server {
+		if status.Server == server && status.Version == buildinfo.Version && status.Build == build {
 			return nil
 		}
 		if err := c.stop(ctx); err != nil {
@@ -168,7 +175,7 @@ func (c Config) Manage(ctx context.Context, command string) error {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	for {
-		if status, err := c.Status(); err == nil && status.Running && status.Server == server {
+		if status, err := c.Status(); err == nil && status.Running && status.Server == server && status.Version == buildinfo.Version && status.Build == build {
 			return nil
 		}
 		select {
@@ -232,7 +239,11 @@ func (c Config) Serve(ctx context.Context) error {
 	defer listener.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	status := Status{Running: true, PID: os.Getpid(), Server: server}
+	build, err := buildinfo.Digest()
+	if err != nil {
+		return err
+	}
+	status := Status{Running: true, Version: buildinfo.Version, Build: build, PID: os.Getpid(), Server: server}
 	var mu sync.Mutex
 	go func() {
 		for {

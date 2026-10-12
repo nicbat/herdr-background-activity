@@ -13,6 +13,7 @@ type Observation struct {
 	Count       int    `json:"count,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	Interaction string `json:"interaction,omitempty"`
+	Agents      int    `json:"background_agents,omitempty"` // Confirmed positive count only; zero is unobserved.
 }
 
 func Unknown(reason string) Observation { return Observation{State: "unknown", Reason: reason} }
@@ -171,6 +172,8 @@ func (o Observation) Label() string {
 	switch o.Interaction {
 	case "question":
 		parts = append(parts, "Reply needed")
+	case "approval":
+		parts = append(parts, "Approval needed")
 	case "draft":
 		parts = append(parts, "Draft prompt")
 	case "input":
@@ -184,6 +187,13 @@ func (o Observation) Label() string {
 		label := fmt.Sprintf("%d background shells", o.Count)
 		if o.Count == 1 {
 			label = "1 background shell"
+		}
+		parts = append(parts, label)
+	}
+	if o.Agents > 0 {
+		label := fmt.Sprintf("%d background agents", o.Agents)
+		if o.Agents == 1 {
+			label = "1 background agent"
 		}
 		parts = append(parts, label)
 	}

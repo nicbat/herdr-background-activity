@@ -45,6 +45,9 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 							o = activity.Unknown("screen truncated")
 						} else {
 							o = activity.Codex(read.Read.Text)
+							if p.Status == "blocked" && o.Interaction != "question" {
+								o.Interaction = activity.BlockedInput(read.Read.Text, "codex")
+							}
 							if p.Status != "idle" && p.Status != "done" && o.State == "known" && o.Count == 0 {
 								o.State, o.Reason = "unknown", "active view may hide the summary"
 							}
@@ -55,6 +58,8 @@ func Observe(ctx context.Context, api herdr.API, panes []herdr.Pane) []Result {
 					}
 				} else if p.Agent == "claude" {
 					o = observeClaude(ctx, api, p)
+				} else if p.Agent == "pi" {
+					o = observePi(ctx, api, p)
 				}
 				results[i] = Result{p, o}
 			}
@@ -75,7 +80,6 @@ func observeClaude(ctx context.Context, api herdr.API, p herdr.Pane) activity.Ob
 	}
 	if p.Status == "blocked" {
 		o.Interaction = "input"
-		return o
 	}
 	var read herdr.ReadResult
 	params := map[string]any{"pane_id": p.ID, "source": "visible", "format": "ansi", "strip_ansi": false}
@@ -87,7 +91,31 @@ func observeClaude(ctx context.Context, api herdr.API, p herdr.Pane) activity.Ob
 		o.Reason = "screen truncated"
 		return o
 	}
+	if p.Status == "blocked" {
+		o.Interaction = activity.BlockedInput(read.Read.Text, "claude")
+		return o
+	}
 	return activity.Claude(read.Read.Text)
+}
+
+func observePi(ctx context.Context, api herdr.API, p herdr.Pane) activity.Observation {
+	o := activity.Observation{State: "unsupported", Reason: "stock Pi has no background-task inventory"}
+	if p.Scroll.Offset != 0 {
+		return o
+	}
+	if p.Status == "blocked" {
+		o.Interaction = "input"
+	}
+	var read herdr.ReadResult
+	params := map[string]any{"pane_id": p.ID, "source": "visible", "format": "ansi", "strip_ansi": false}
+	if err := api.Call(ctx, "pane.read", params, &read); err != nil || read.Read.Truncated {
+		return o
+	}
+	parsed := activity.Pi(read.Read.Text)
+	if p.Status == "blocked" && parsed.Interaction != "question" && parsed.Interaction != "approval" {
+		parsed.Interaction = "input"
+	}
+	return parsed
 }
 
 func PaneTokens(o activity.Observation) herdr.Tokens {
@@ -103,9 +131,9 @@ func PaneTokens(o activity.Observation) herdr.Tokens {
 }
 
 func WorkspaceTokens(results []Result, id string) herdr.Tokens {
-	var supported, unknown, count, replies, drafts, inputs int
+	var supported, unknown, count, replies, drafts, inputs, approvals, agents int
 	for _, r := range results {
-		if r.Pane.WorkspaceID != id || (r.Pane.Agent != "codex" && r.Pane.Agent != "claude") {
+		if r.Pane.WorkspaceID != id || !supportedAgent(r.Pane.Agent) {
 			continue
 		}
 		switch r.Observation.Interaction {
@@ -115,6 +143,12 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 			drafts++
 		case "input":
 			inputs++
+		case "approval":
+			approvals++
+		}
+		agents += r.Observation.Agents
+		if r.Observation.State == "unsupported" {
+			continue
 		}
 		supported++
 		if r.Observation.State != "known" {
@@ -143,6 +177,13 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 		}
 	}
 	labels := []string{}
+	if approvals > 0 {
+		noun := "approvals needed"
+		if approvals == 1 {
+			noun = "approval needed"
+		}
+		labels = append(labels, fmt.Sprintf("%d %s", approvals, noun))
+	}
 	if replies > 0 {
 		noun := "replies needed"
 		if replies == 1 {
@@ -155,6 +196,10 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 	}
 	if tokens["bg_activity"] != nil {
 		labels = append(labels, *tokens["bg_activity"])
+	}
+	if agents > 0 {
+		// Other panes can hide running children; this is a confirmed lower bound.
+		labels = append(labels, fmt.Sprintf("%d+ background agents", agents))
 	}
 	if drafts > 0 {
 		noun := "drafts"
@@ -171,6 +216,8 @@ func WorkspaceTokens(results []Result, id string) herdr.Tokens {
 	}
 	return tokens
 }
+
+func supportedAgent(agent string) bool { return agent == "codex" || agent == "claude" || agent == "pi" }
 
 type reported struct {
 	Fingerprint string
@@ -225,8 +272,10 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			result.Observation.Interaction = "input"
 		}
 		result.Pane = pane
-		if pane.Agent != "codex" && pane.Agent != "claude" {
+		if !supportedAgent(pane.Agent) {
 			result.Observation = activity.Observation{State: "unsupported"}
+		} else if pane.Agent == "pi" {
+			result.Observation.State, result.Observation.Count, result.Observation.Agents = "unsupported", 0, 0
 		}
 		validated = append(validated, result)
 		tokens := PaneTokens(result.Observation)

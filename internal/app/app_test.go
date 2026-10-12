@@ -191,7 +191,7 @@ func TestObserveUncertainViews(t *testing.T) {
 				p.Status = "working"
 				f.screen = zeroScreen
 			case "unsupported":
-				p.Agent = "pi"
+				p.Agent = "gemini"
 			}
 			o := Observe(context.Background(), f, []herdr.Pane{p})[0].Observation
 			if o.State == "known" {
@@ -404,6 +404,84 @@ func TestClaudeShellViewGuards(t *testing.T) {
 			}
 			if f.reports[0].Tokens["bg_shells"] != nil {
 				t.Fatal("stale/hidden Claude count")
+			}
+		})
+	}
+}
+
+func TestNewActivityLifecycleAndRollup(t *testing.T) {
+	f := fixture()
+	f.snapshot.Panes[0].Agent = "claude"
+	r := Runner{API: f}
+	now := time.Now()
+	waiting := "✻ Waiting for 1 background agent to finish\n\n────────────────────\n❯\n────────────────────\n⏵⏵ auto mode on · ← for agents\n"
+	f.screen = waiting
+	if err := r.Tick(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	if token(f.reports[0].Tokens, "bg_activity") != "1 background agent" || token(f.reports[1].Tokens, "bg_activity") != "1+ background agents" {
+		t.Fatal(f.reports)
+	}
+	f.readErr = true
+	if err := r.Tick(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if f.reports[2].Tokens["bg_activity"] != nil {
+		t.Fatal("stale subagent count")
+	}
+	f.readErr = false
+	f.snapshot.Panes[0].Status = "blocked"
+	f.screen = "────────────────────\nDo you want to proceed?\n❯ 1. Yes\n2. No\nEnter to select · Esc to cancel"
+	if err := r.Tick(context.Background(), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if token(f.reports[4].Tokens, "bg_activity") != "Approval needed" || token(f.reports[5].Tokens, "bg_activity") != "1 approval needed" {
+		t.Fatal(f.reports[4:])
+	}
+	f.snapshot.Panes[0].Agent = "pi"
+	f.snapshot.Panes[0].Status = "idle"
+	f.screen = "────────────────────\nExample\n────────────────────\n~/example\n0.1%/200k (auto)   model"
+	if err := r.Tick(context.Background(), now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if token(f.reports[6].Tokens, "bg_activity") != "Draft prompt" || token(f.reports[7].Tokens, "bg_activity") != "1 draft" || f.reports[7].Tokens["bg_shells"] != nil {
+		t.Fatal(f.reports[6:])
+	}
+	f.screen = "────────────────────\n \n────────────────────\n~/example\n0.1%/200k (auto)   model"
+	if err := r.Tick(context.Background(), now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if f.reports[8].Tokens["bg_activity"] != nil {
+		t.Fatal("submitted Pi draft not cleared")
+	}
+}
+
+func TestPiViewGuards(t *testing.T) {
+	for _, mode := range []string{"blocked", "scrolled", "truncated", "read error", "replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			f := fixture()
+			f.snapshot.Panes[0].Agent = "pi"
+			f.screen = "────────────────────\nExample\n────────────────────\n~/example\n0.1%/200k (auto) model"
+			switch mode {
+			case "blocked":
+				f.snapshot.Panes[0].Status = "blocked"
+			case "scrolled":
+				f.snapshot.Panes[0].Scroll.Offset = 1
+			case "truncated":
+				f.truncated = true
+			case "read error":
+				f.readErr = true
+			case "replacement":
+				p := f.snapshot.Panes[0]
+				p.TerminalID = "new"
+				f.replacement = &herdr.Snapshot{Panes: []herdr.Pane{p}}
+			}
+			r := Runner{API: f}
+			if err := r.Tick(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if token(f.reports[0].Tokens, "bg_activity") == "Draft prompt" || f.reports[0].Tokens["bg_shells"] != nil {
+				t.Fatal("invalid Pi observation")
 			}
 		})
 	}

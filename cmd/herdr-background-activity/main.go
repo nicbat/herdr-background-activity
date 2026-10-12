@@ -11,6 +11,7 @@ import (
 
 	"github.com/nicbat/herdr-background-activity/internal/activity"
 	"github.com/nicbat/herdr-background-activity/internal/app"
+	"github.com/nicbat/herdr-background-activity/internal/buildinfo"
 	"github.com/nicbat/herdr-background-activity/internal/herdr"
 	"github.com/nicbat/herdr-background-activity/internal/service"
 )
@@ -28,7 +29,11 @@ func run() error {
 		command = os.Args[1]
 	}
 	if command == "--help" || command == "help" {
-		fmt.Println("herdr-background-activity [start|stop|restart|status|inspect|serve]\nRun inside Herdr. inspect is read-only; serve runs in the foreground.")
+		fmt.Println("herdr-background-activity [start|stop|restart|status|inspect|serve|version]\nRun inside Herdr. inspect is read-only; serve runs in the foreground.")
+		return nil
+	}
+	if command == "version" || command == "--version" {
+		fmt.Println(buildinfo.Version)
 		return nil
 	}
 	c, err := service.FromEnv()

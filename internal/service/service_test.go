@@ -12,12 +12,20 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nicbat/herdr-background-activity/internal/buildinfo"
 )
 
 // Manage launches the current executable; this entry point makes the test
 // executable act as the real daemon in child processes.
 func TestMain(m *testing.M) {
 	if os.Getenv("HBA_TEST_SERVICE") == "1" {
+		if v := os.Getenv("HBA_TEST_VERSION"); v != "" {
+			buildinfo.Version = v
+		}
+		if digest := os.Getenv("HBA_TEST_DIGEST"); digest != "" {
+			buildinfo.Digest = func() (string, error) { return digest, nil }
+		}
 		c, err := FromEnv()
 		if err == nil {
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -128,6 +136,9 @@ func TestLifecycle(t *testing.T) {
 	}
 	eventually(t, func() bool { status, err := c.Status(); return err == nil && status.Healthy })
 	first, _ := c.Status()
+	if first.Version != buildinfo.Version || len(first.Build) != 64 {
+		t.Fatal("missing running build identity", first)
+	}
 	if err := c.Manage(ctx, "start"); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +162,37 @@ func TestLifecycle(t *testing.T) {
 	s.mu.Unlock()
 	if cleared == 0 {
 		t.Fatal("restart did not clear previous metadata")
+	}
+	// Installing a different release and invoking start replaces the reporter,
+	// waits for cleanup, and then remains idempotent for the installed build.
+	originalVersion := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = originalVersion })
+	buildinfo.Version = "test-upgrade"
+	t.Setenv("HBA_TEST_VERSION", buildinfo.Version)
+	if err := c.Manage(ctx, "start"); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, _ := c.Status()
+	if upgraded.PID == third.PID || upgraded.Version != buildinfo.Version || upgraded.Build != third.Build {
+		t.Fatal("upgrade was not applied", upgraded)
+	}
+	if err := c.Manage(ctx, "start"); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := c.Status()
+	if again.PID != upgraded.PID {
+		t.Fatal("same build restarted unnecessarily")
+	}
+	originalDigest := buildinfo.Digest
+	t.Cleanup(func() { buildinfo.Digest = originalDigest })
+	buildinfo.Digest = func() (string, error) { return "test-rebuild-of-same-version", nil }
+	t.Setenv("HBA_TEST_DIGEST", "test-rebuild-of-same-version")
+	if err := c.Manage(ctx, "start"); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, _ := c.Status()
+	if rebuilt.PID == upgraded.PID || rebuilt.Version != upgraded.Version || rebuilt.Build == upgraded.Build {
+		t.Fatal("same-version rebuild left the old reporter running", rebuilt)
 	}
 	// A second Herdr socket uses an independent singleton.
 	c2 := Config{Socket: filepath.Join(dir, "s2"), StateDir: c.StateDir}
